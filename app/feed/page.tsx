@@ -1,11 +1,7 @@
 'use client'
 
-import {useEffect, useState} from 'react'
-import {supabase} from '@/lib/supabase/client'
-import {toggleLike} from '@/lib/services/likeService'
-import {addComment} from '@/lib/services/commentService'
-import Comments from '@/components/Comments'
-import {toggleFollow} from '@/lib/services/followService'
+import { useEffect, useState, useRef, useCallback } from 'react'
+import { supabase } from '@/lib/supabase/client'
 import PostCard from '@/components/PostCard'
 import SuggestedUsers from '@/components/SuggestedUsers'
 
@@ -20,76 +16,110 @@ type Post = {
     is_following: boolean
 }
 
-export default function FeedPage(){
+export default function FeedPage() {
     const [posts, setPosts] = useState<Post[]>([])
-    const [loading, setLoading] = useState(true)
+    const [loading, setLoading] = useState(false)
     const [userId, setUserId] = useState<string | null>(null)
-    const [refreshKey, setRefreshKey] = useState(0) // simple way to trigger re-fetch
-    const [viewerId, setViewerId] = useState<string | null>(null)
+    const [page, setPage] = useState(0)
+    const [hasMore, setHasMore] = useState(true)
 
-    const fetchFeed = async () => {
-        const {data: userData} = await supabase.auth.getUser()
-        const user = userData.user
+    const observer = useRef<IntersectionObserver | null>(null)
+    const PAGE_SIZE = 10
+
+    // Unified fetch function for both initial load and pagination
+    const fetchFeed = useCallback(async (pageNum: number) => {
+        // Only show full-page loading for the first fetch
+        if (pageNum === 0) setLoading(true)
+
+        const { data: { user } } = await supabase.auth.getUser()
         if (!user) return
-
         setUserId(user.id)
-        setRefreshKey(prev => prev+1) // trigger re-fetch after getting user
 
-        const {data, error} = await supabase.rpc('get_ranked_feed', {
+        const { data, error } = await supabase.rpc('get_ranked_feed', {
             user_id_param: user.id,
+            limit_val: PAGE_SIZE,
+            offset_val: pageNum * PAGE_SIZE
         })
 
-        console.log(data)   // Debug: log the feed data
-
-        if (!error) {
-            setPosts(data || [])
+        if (!error && data) {
+            // If it's the first page, replace. If it's a new page, append.
+            setPosts(prev => pageNum === 0 ? data : [...prev, ...data])
+            // If we received fewer posts than requested, there's no more data
+            setHasMore(data.length === PAGE_SIZE)
         }
 
         setLoading(false)
-    }
-
-    useEffect(() => {
-        async function getUser() {
-            const {data} = await supabase.auth.getUser()
-            if (data.user) {
-                setViewerId(data.user.id)
-            }
-        }
-        getUser()
-        fetchFeed()
     }, [])
 
-    if (loading) return <div className ="p-10">Loading feed...</div>
+    // Intersection Observer: Triggered when the last post enters the viewport
+    const lastPostRef = useCallback((node: HTMLDivElement) => {
+        if (loading) return
+        if (observer.current) observer.current.disconnect()
+
+        observer.current = new IntersectionObserver(entries => {
+            if (entries[0].isIntersecting && hasMore) {
+                setPage(prev => prev + 1)
+            }
+        })
+
+        if (node) observer.current.observe(node)
+    }, [loading, hasMore])
+
+    // Load initial feed
+    useEffect(() => {
+        fetchFeed(0)
+    }, [fetchFeed])
+
+    // Fetch more when page increments
+    useEffect(() => {
+        if (page > 0) {
+            fetchFeed(page)
+        }
+    }, [page, fetchFeed])
+
+    if (loading && posts.length === 0) return <div className="p-10">Loading feed...</div>
 
     return (
-
         <div className="max-w-xl mx-auto p-10 space-y-6">
-            <div className='flex gap-4 mb-4'>
-                <a href="/feed" className='text-blue-700'>Home</a>
-                <a href="/explore" className='text-blue-700'>Explore</a>
-                <a href="/create" className='text-blue-700'>Create</a>
-                <a href={`/profile/${userId}`} className='text-blue-700'>Profile</a>
-            </div>
+            
 
-            <h1 className='text-2xl font-bold'>Feed</h1>
-
-            {posts.length === 0 && <p>No posts yet, boi.</p>}
-
+            {/* Existing Suggested Users Feature */}
             <div className='max-w-4xl mx-auto'>
-                {viewerId && (
-                    <SuggestedUsers viewerId = {viewerId} />
-                )}
+                {userId && <SuggestedUsers viewerId={userId} />}
             </div>
 
-            {posts.map((post) => (
-                <PostCard
-                    key={post.id}
-                    post={post}
-                    currentUserId={userId}
-                    refreshFeed={fetchFeed}
-                    showFollowButton={false} // Hide follow button on feed, only show on explore
-                />
-            ))}
+            {posts.length === 0 && !loading && <p>No posts yet, boi.</p>}
+
+            {/* Feed Rendering with Infinite Scroll Ref */}
+            <div className="space-y-6">
+                {posts.map((post, index) => {
+                    const isLastElement = posts.length === index + 1
+                    
+                    return (
+                        <div 
+                            key={post.id} 
+                            ref={isLastElement ? lastPostRef : null}
+                        >
+                            <PostCard
+                                post={post}
+                                currentUserId={userId}
+                                // Re-fetches current state if a like/comment happens
+                                refreshFeed={() => fetchFeed(0)} 
+                                showFollowButton={false}
+                            />
+                        </div>
+                    )
+                })}
+            </div>
+
+            {/* Loading Indicator for the bottom of the feed */}
+            {loading && posts.length > 0 && (
+                <p className="text-center py-4 text-gray-500">Loading more content...</p>
+            )}
+            
+            {!hasMore && posts.length > 0 && (
+                <p className="text-center py-4 text-gray-400 text-sm">You have reached the end of the feed.</p>
+            )}
         </div>
     )
 }

@@ -74,11 +74,7 @@ export default function ProfilePage(){
 
     return (
         <div className='max-w-xl mx-auto p-10 space-y-6'>
-            <div className='flex gap-4 mb-4'>
-                <a href="/feed" className='text-blue-700'>Home</a>
-                <a href="/explore" className='text-blue-700'>Explore</a>
-                <a href="/create" className='text-blue-700'>Create</a>
-            </div>
+            
             <h1 className='text-2xl font-bold'>{username}</h1>
 
             <div className='flex gap-6 text-sm text-gray-600'>

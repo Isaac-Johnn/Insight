@@ -46,13 +46,7 @@ export default function ExplorePage(){
 
     return(
         <div className = "max-w-xl mx-auto p-10 space-y-6">
-            <div className='flex gap-4 mb-4'>
-                <a href="/feed" className='text-blue-700'>Home</a>
-                <a href="/create" className='text-blue-700'>Create</a>
-            </div>
-
-            <h1 className='text-2xl font-bold'>Explore</h1>
-
+            
             {posts.map((post) => (
                 <PostCard
                     key = {post.id}
